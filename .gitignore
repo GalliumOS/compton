@@ -1,32 +1,46 @@
-# Object files
+# Build files
+.deps
+aclocal.m4
+autom4te.cache
+config.h
+config.h.in
+config.log
+config.status
+configure
+depcomp
+install-sh
+missing
+stamp-h1
+compton
 *.o
-*.ko
-*.obj
-*.elf
+build/
 
-# Precompiled Headers
-*.gch
-*.pch
+# CMake files
+compton-*.deb
+compton-*.rpm
+compton-*.tar.bz2
+release/
+_CPack_Packages/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CPackSourceConfig.cmake
+install_manifest.txt
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
+# Vim files
+.*.sw[a-z]
+*~
 
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Debug files
-*.dSYM/
+# Misc files
+/core
+/*.core
+oprofile_data/
+compton.plist
+callgrind.out.*
+man/*.html
+man/*.1
+doxygen/
+.clang_complete
+/src/backtrace-symbols.[ch]
+/compton*.trace
