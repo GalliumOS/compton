@@ -1,3 +1,9 @@
+compton (0.1~beta2-2) vivid-galliumos; urgency=low
+
+  * Added config and .desktop file
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Thu, 03 Sep 2015 19:55:25 +1100
+
 compton (0.1~beta2-1) unstable; urgency=low
 
   * New upstream release, 0.1~beta2.
