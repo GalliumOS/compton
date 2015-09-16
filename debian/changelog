@@ -1,3 +1,9 @@
+compton (0.1~beta2-4) vivid-galliumos; urgency=low
+
+  * Excluded xscreensaver
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Mon, 14 Sep 2015 19:55:25 +1100
+
 compton (0.1~beta2-2) vivid-galliumos; urgency=low
 
   * Added config and .desktop file
