@@ -219,7 +219,7 @@ paint_isvalid(session_t *ps, const paint_t *ppaint) {
   if (!ppaint)
     return false;
 
-  if (BKEND_XRENDER == ps->o.backend && !ppaint->pict)
+  if (bkend_use_xrender(ps) && !ppaint->pict)
     return false;
 
 #ifdef CONFIG_VSYNC_OPENGL
@@ -229,22 +229,29 @@ paint_isvalid(session_t *ps, const paint_t *ppaint) {
 
   return true;
 }
+
 /**
  * Bind texture in paint_t if we are using GLX backend.
  */
 static inline bool
-paint_bind_tex(session_t *ps, paint_t *ppaint,
+paint_bind_tex_real(session_t *ps, paint_t *ppaint,
     unsigned wid, unsigned hei, unsigned depth, bool force) {
 #ifdef CONFIG_VSYNC_OPENGL
-  if (BKEND_GLX == ps->o.backend) {
-    if (!ppaint->pixmap)
-      return false;
+  if (!ppaint->pixmap)
+    return false;
 
-    if (force || !glx_tex_binded(ppaint->ptex, ppaint->pixmap))
-      return glx_bind_pixmap(ps, &ppaint->ptex, ppaint->pixmap, wid, hei, depth);
-  }
+  if (force || !glx_tex_binded(ppaint->ptex, ppaint->pixmap))
+    return glx_bind_pixmap(ps, &ppaint->ptex, ppaint->pixmap, wid, hei, depth);
 #endif
 
+  return true;
+}
+
+static inline bool
+paint_bind_tex(session_t *ps, paint_t *ppaint,
+    unsigned wid, unsigned hei, unsigned depth, bool force) {
+  if (BKEND_GLX == ps->o.backend)
+    return paint_bind_tex_real(ps, ppaint, wid, hei, depth, force);
   return true;
 }
 
@@ -263,9 +270,18 @@ free_reg_data(reg_data_t *pregd) {
  */
 static inline void
 free_paint(session_t *ps, paint_t *ppaint) {
-  free_texture(ps, &ppaint->ptex);
+  free_paint_glx(ps, ppaint);
   free_picture(ps, &ppaint->pict);
   free_pixmap(ps, &ppaint->pixmap);
+}
+
+/**
+ * Free w->paint.
+ */
+static inline void
+free_wpaint(session_t *ps, win *w) {
+  free_paint(ps, &w->paint);
+  free_fence(ps, &w->fence);
 }
 
 /**
@@ -273,6 +289,7 @@ free_paint(session_t *ps, paint_t *ppaint) {
  */
 static inline void
 free_win_res(session_t *ps, win *w) {
+  free_win_res_glx(ps, w);
   free_region(ps, &w->extents);
   free_paint(ps, &w->paint);
   free_region(ps, &w->border_size);
@@ -283,9 +300,6 @@ free_win_res(session_t *ps, win *w) {
   free(w->class_instance);
   free(w->class_general);
   free(w->role);
-#ifdef CONFIG_VSYNC_OPENGL_GLSL
-  free_glx_bc(ps, &w->glx_blur_cache);
-#endif
 }
 
 /**
@@ -337,9 +351,7 @@ isdamagenotify(session_t *ps, const XEvent *ev) {
  */
 static inline XTextProperty *
 make_text_prop(session_t *ps, char *str) {
-  XTextProperty *pprop = malloc(sizeof(XTextProperty));
-  if (!pprop)
-    printf_errfq(1, "(): Failed to allocate memory.");
+  XTextProperty *pprop = ccalloc(1, XTextProperty);
 
   if (XmbTextListToTextProperty(ps->dpy, &str, 1,  XStringStyle, pprop)) {
     cxfree(pprop->value);
@@ -348,6 +360,25 @@ make_text_prop(session_t *ps, char *str) {
   }
 
   return pprop;
+}
+
+
+/**
+ * Set a single-string text property on a window.
+ */
+static inline bool
+wid_set_text_prop(session_t *ps, Window wid, Atom prop_atom, char *str) {
+  XTextProperty *pprop = make_text_prop(ps, str);
+  if (!pprop) {
+    printf_errf("(\"%s\"): Failed to make text property.", str);
+    return false;
+  }
+
+  XSetTextProperty(ps->dpy, wid, pprop, prop_atom);
+  cxfree(pprop->value);
+  cxfree(pprop);
+
+  return true;
 }
 
 static void
@@ -469,10 +500,25 @@ update_reg_ignore_expire(session_t *ps, const win *w) {
 /**
  * Check whether a window has WM frames.
  */
-static inline bool __attribute__((const))
+static inline bool __attribute__((pure))
 win_has_frame(const win *w) {
   return w->a.border_width
-    || w->top_width || w->left_width || w->right_width || w->bottom_width;
+    || w->frame_extents.top || w->frame_extents.left
+    || w->frame_extents.right || w->frame_extents.bottom;
+}
+
+/**
+ * Calculate the extents of the frame of the given window based on EWMH
+ * _NET_FRAME_EXTENTS and the X window border width.
+ */
+static inline margin_t __attribute__((pure))
+win_calc_frame_extents(session_t *ps, const win *w) {
+  margin_t result = w->frame_extents;
+  result.top = max_i(result.top, w->a.border_width);
+  result.left = max_i(result.left, w->a.border_width);
+  result.bottom = max_i(result.bottom, w->a.border_width);
+  result.right = max_i(result.right, w->a.border_width);
+  return result;
 }
 
 static inline void
@@ -642,27 +688,45 @@ static win *
 paint_preprocess(session_t *ps, win *list);
 
 static void
-render(session_t *ps, int x, int y, int dx, int dy, int wid, int hei,
+render_(session_t *ps, int x, int y, int dx, int dy, int wid, int hei,
     double opacity, bool argb, bool neg,
     Picture pict, glx_texture_t *ptex,
-    XserverRegion reg_paint, const reg_data_t *pcache_reg);
+    XserverRegion reg_paint, const reg_data_t *pcache_reg
+#ifdef CONFIG_VSYNC_OPENGL_GLSL
+    , const glx_prog_main_t *pprogram
+#endif
+    );
+
+#ifdef CONFIG_VSYNC_OPENGL_GLSL
+#define \
+   render(ps, x, y, dx, dy, wid, hei, opacity, argb, neg, pict, ptex, reg_paint, pcache_reg, pprogram) \
+  render_(ps, x, y, dx, dy, wid, hei, opacity, argb, neg, pict, ptex, reg_paint, pcache_reg, pprogram)
+#else
+#define \
+   render(ps, x, y, dx, dy, wid, hei, opacity, argb, neg, pict, ptex, reg_paint, pcache_reg, pprogram) \
+  render_(ps, x, y, dx, dy, wid, hei, opacity, argb, neg, pict, ptex, reg_paint, pcache_reg)
+#endif
 
 static inline void
-win_render(session_t *ps, win *w, int x, int y, int wid, int hei, double opacity, XserverRegion reg_paint, const reg_data_t *pcache_reg, Picture pict) {
+win_render(session_t *ps, win *w, int x, int y, int wid, int hei,
+    double opacity, XserverRegion reg_paint, const reg_data_t *pcache_reg,
+    Picture pict) {
   const int dx = (w ? w->a.x: 0) + x;
   const int dy = (w ? w->a.y: 0) + y;
-  const bool argb = (w && w->mode == WMODE_ARGB);
+  const bool argb = (w && (WMODE_ARGB == w->mode || ps->o.force_win_blend));
   const bool neg = (w && w->invert_color);
 
   render(ps, x, y, dx, dy, wid, hei, opacity, argb, neg,
-      pict, (w ? w->paint.ptex: ps->root_tile_paint.ptex), reg_paint, pcache_reg);
+      pict, (w ? w->paint.ptex: ps->root_tile_paint.ptex),
+      reg_paint, pcache_reg, (w ? &ps->o.glx_prog_win: NULL));
 }
 
 static inline void
 set_tgt_clip(session_t *ps, XserverRegion reg, const reg_data_t *pcache_reg) {
   switch (ps->o.backend) {
     case BKEND_XRENDER:
-      XFixesSetPictureClipRegion(ps->dpy, ps->tgt_buffer, 0, 0, reg);
+    case BKEND_XR_GLX_HYBRID:
+      XFixesSetPictureClipRegion(ps->dpy, ps->tgt_buffer.pict, 0, 0, reg);
       break;
 #ifdef CONFIG_VSYNC_OPENGL
     case BKEND_GLX:
@@ -798,10 +862,19 @@ static void
 win_update_prop_shadow(session_t *ps, win *w);
 
 static void
+win_set_shadow(session_t *ps, win *w, bool shadow_new);
+
+static void
 win_determine_shadow(session_t *ps, win *w);
 
 static void
+win_set_invert_color(session_t *ps, win *w, bool invert_color_new);
+
+static void
 win_determine_invert_color(session_t *ps, win *w);
+
+static void
+win_set_blur_background(session_t *ps, win *w, bool blur_background_new);
 
 static void
 win_determine_blur_background(session_t *ps, win *w);
@@ -858,7 +931,7 @@ static void
 damage_win(session_t *ps, XDamageNotifyEvent *de);
 
 static int
-error(Display *dpy, XErrorEvent *ev);
+xerror(Display *dpy, XErrorEvent *ev);
 
 static void
 expose_root(session_t *ps, XRectangle *rects, int nrects);
@@ -1164,10 +1237,10 @@ swopti_handle_timeout(session_t *ps, struct timeval *ptv);
 static inline bool
 ensure_glx_context(session_t *ps) {
   // Create GLX context
-  if (!ps->glx_context)
+  if (!glx_has_context(ps))
     glx_init(ps, false);
 
-  return ps->glx_context;
+  return ps->psglx->context;
 }
 #endif
 
@@ -1214,7 +1287,7 @@ init_alpha_picts(session_t *ps);
 static bool
 init_dbe(session_t *ps);
 
-static void
+static bool
 init_overlay(session_t *ps);
 
 static void

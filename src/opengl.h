@@ -41,10 +41,10 @@ glx_dump_err_str(GLenum err) {
  */
 static inline void
 glx_check_err_(session_t *ps, const char *func, int line) {
-  if (!ps->glx_context) return;
+  if (!ps->psglx->context) return;
 
   GLenum err = GL_NO_ERROR;
-  
+
   while (GL_NO_ERROR != (err = glGetError())) {
     print_timestamp(ps);
     printf("%s():%d: GLX error ", func, line);
@@ -59,6 +59,8 @@ glx_check_err_(session_t *ps, const char *func, int line) {
 }
 
 #define glx_check_err(ps) glx_check_err_(ps, __func__, __LINE__)
+#else
+#define glx_check_err(ps) ((void) 0)
 #endif
 
 /**

@@ -14,6 +14,7 @@
 // === Options ===
 
 // Debug options, enable them using -D in CFLAGS
+// #define DEBUG_BACKTRACE  1
 // #define DEBUG_REPAINT    1
 // #define DEBUG_EVENTS     1
 // #define DEBUG_RESTACK    1
@@ -55,9 +56,25 @@
 // #define CONFIG_DBUS 1
 // Whether to enable condition support.
 // #define CONFIG_C2 1
+// Whether to enable X Sync support.
+// #define CONFIG_XSYNC 1
+// Whether to enable GLX Sync support.
+// #define CONFIG_GLX_XSYNC 1
 
 #if !defined(CONFIG_C2) && defined(DEBUG_C2)
 #error Cannot enable c2 debugging without c2 support.
+#endif
+
+#if (!defined(CONFIG_XSYNC) || !defined(CONFIG_VSYNC_OPENGL)) && defined(CONFIG_GLX_SYNC)
+#error Cannot enable GL sync without X Sync / OpenGL support.
+#endif
+
+#ifndef COMPTON_VERSION
+#define COMPTON_VERSION "unknown"
+#endif
+
+#if defined(DEBUG_ALLOC_REG)
+#define DEBUG_BACKTRACE 1
 #endif
 
 // === Includes ===
@@ -85,6 +102,9 @@
 #include <X11/extensions/shape.h>
 #include <X11/extensions/Xrandr.h>
 #include <X11/extensions/Xdbe.h>
+#ifdef CONFIG_XSYNC
+#include <X11/extensions/sync.h>
+#endif
 
 #ifdef CONFIG_XINERAMA
 #include <X11/extensions/Xinerama.h>
@@ -107,8 +127,9 @@
 #include <dbus/dbus.h>
 #endif
 
-// libGL
 #ifdef CONFIG_VSYNC_OPENGL
+
+// libGL
 #if defined(CONFIG_VSYNC_OPENGL_GLSL) || defined(CONFIG_VSYNC_OPENGL_FBO)
 #define GL_GLEXT_PROTOTYPES
 #endif
@@ -131,6 +152,12 @@
 
 #define MSTR_(s)        #s
 #define MSTR(s)         MSTR_(s)
+
+/// @brief Wrapper for gcc branch prediction builtin, for likely branch.
+#define likely(x)    __builtin_expect(!!(x), 1)
+
+/// @brief Wrapper for gcc branch prediction builtin, for unlikely branch.
+#define unlikely(x)  __builtin_expect(!!(x), 0)
 
 /// Print out an error message.
 #define printf_err(format, ...) \
@@ -160,6 +187,11 @@
 /// Macro used for shortening some debugging code.
 #define CASESTRRET(s)   case s: return #s
 
+// X resource checker
+#ifdef DEBUG_XRC
+#include "xrescheck.h"
+#endif
+
 // === Constants ===
 #if !(COMPOSITE_MAJOR > 0 || COMPOSITE_MINOR >= 2)
 #error libXcomposite version unsupported
@@ -187,7 +219,7 @@
 #define MS_PER_SEC 1000
 
 #define XRFILTER_CONVOLUTION  "convolution"
-#define XRFILTER_GUASSIAN     "gaussian"
+#define XRFILTER_GAUSSIAN     "gaussian"
 #define XRFILTER_BINOMIAL     "binomial"
 
 /// @brief Maximum OpenGL FBConfig depth.
@@ -246,6 +278,17 @@ typedef struct {
   int x;
   int y;
 } geometry_t;
+
+/// A structure representing margins around a rectangle.
+typedef struct {
+  int top;
+  int left;
+  int bottom;
+  int right;
+} margin_t;
+
+// Or use cmemzero().
+#define MARGIN_INIT { 0, 0, 0, 0 }
 
 /// Enumeration type of window painting mode.
 typedef enum {
@@ -313,6 +356,7 @@ typedef enum {
 enum backend {
   BKEND_XRENDER,
   BKEND_GLX,
+  BKEND_XR_GLX_HYBRID,
   NUM_BKEND,
 };
 
@@ -327,6 +371,16 @@ enum {
 typedef struct _glx_texture glx_texture_t;
 
 #ifdef CONFIG_VSYNC_OPENGL
+#ifdef DEBUG_GLX_DEBUG_CONTEXT
+typedef GLXContext (*f_glXCreateContextAttribsARB) (Display *dpy,
+    GLXFBConfig config, GLXContext share_context, Bool direct,
+    const int *attrib_list);
+typedef void (*GLDEBUGPROC) (GLenum source, GLenum type,
+    GLuint id, GLenum severity, GLsizei length, const GLchar* message,
+    GLvoid* userParam);
+typedef void (*f_DebugMessageCallback) (GLDEBUGPROC, void *userParam);
+#endif
+
 typedef int (*f_WaitVideoSync) (int, int, unsigned *);
 typedef int (*f_GetVideoSync) (unsigned *);
 
@@ -340,6 +394,47 @@ typedef void (*f_BindTexImageEXT) (Display *display, GLXDrawable drawable, int b
 typedef void (*f_ReleaseTexImageEXT) (Display *display, GLXDrawable drawable, int buffer);
 
 typedef void (*f_CopySubBuffer) (Display *dpy, GLXDrawable drawable, int x, int y, int width, int height);
+
+#ifdef CONFIG_GLX_SYNC
+// Looks like duplicate typedef of the same type is safe?
+typedef int64_t GLint64;
+typedef uint64_t GLuint64;
+typedef struct __GLsync *GLsync;
+
+#ifndef GL_SYNC_FLUSH_COMMANDS_BIT
+#define GL_SYNC_FLUSH_COMMANDS_BIT 0x00000001
+#endif
+
+#ifndef GL_TIMEOUT_IGNORED
+#define GL_TIMEOUT_IGNORED 0xFFFFFFFFFFFFFFFFull
+#endif
+
+#ifndef GL_ALREADY_SIGNALED
+#define GL_ALREADY_SIGNALED 0x911A
+#endif
+
+#ifndef GL_TIMEOUT_EXPIRED
+#define GL_TIMEOUT_EXPIRED 0x911B
+#endif
+
+#ifndef GL_CONDITION_SATISFIED
+#define GL_CONDITION_SATISFIED 0x911C
+#endif
+
+#ifndef GL_WAIT_FAILED
+#define GL_WAIT_FAILED 0x911D
+#endif
+
+typedef GLsync (*f_FenceSync) (GLenum condition, GLbitfield flags);
+typedef GLboolean (*f_IsSync) (GLsync sync);
+typedef void (*f_DeleteSync) (GLsync sync);
+typedef GLenum (*f_ClientWaitSync) (GLsync sync, GLbitfield flags,
+    GLuint64 timeout);
+typedef void (*f_WaitSync) (GLsync sync, GLbitfield flags,
+    GLuint64 timeout);
+typedef GLsync (*f_ImportSyncEXT) (GLenum external_sync_type,
+    GLintptr external_sync, GLbitfield flags);
+#endif
 
 #ifdef DEBUG_GLX_MARK
 typedef void (*f_StringMarkerGREMEDY) (GLsizei len, const void *string);
@@ -365,7 +460,6 @@ struct _glx_texture {
   unsigned depth;
   bool y_inverted;
 };
-#endif
 
 #ifdef CONFIG_VSYNC_OPENGL_GLSL
 typedef struct {
@@ -391,6 +485,26 @@ typedef struct {
   /// Height of the textures.
   int height;
 } glx_blur_cache_t;
+
+typedef struct {
+  /// GLSL program.
+  GLuint prog;
+  /// Location of uniform "opacity" in window GLSL program.
+  GLint unifm_opacity;
+  /// Location of uniform "invert_color" in blur GLSL program.
+  GLint unifm_invert_color;
+  /// Location of uniform "tex" in window GLSL program.
+  GLint unifm_tex;
+} glx_prog_main_t;
+
+#define GLX_PROG_MAIN_INIT { \
+  .prog = 0, \
+  .unifm_opacity = -1, \
+  .unifm_invert_color = -1, \
+  .unifm_tex = -1, \
+}
+
+#endif
 #endif
 
 typedef struct {
@@ -427,15 +541,24 @@ struct _win;
 typedef struct _c2_lptr c2_lptr_t;
 
 /// Structure representing all options.
-typedef struct {
+typedef struct _options_t {
   // === General ===
   /// The configuration file we used.
   char *config_file;
+  /// Path to write PID to.
+  char *write_pid_path;
   /// The display name we used. NULL means we are using the value of the
   /// <code>DISPLAY</code> environment variable.
   char *display;
+  /// Safe representation of display name.
+  char *display_repr;
   /// The backend in use.
   enum backend backend;
+  /// Whether to sync X drawing to avoid certain delay issues with
+  /// GLX backend.
+  bool xrender_sync;
+  /// Whether to sync X drawing with X Sync fence.
+  bool xrender_sync_fence;
   /// Whether to avoid using stencil buffer under GLX backend. Might be
   /// unsafe.
   bool glx_no_stencil;
@@ -449,10 +572,12 @@ typedef struct {
   int glx_swap_method;
   /// Whether to use GL_EXT_gpu_shader4 to (hopefully) accelerates blurring.
   bool glx_use_gpushader4;
-  /// Whether to try to detect WM windows and mark them as focused.
-  bool mark_wmwin_focused;
-  /// Whether to mark override-redirect windows as focused.
-  bool mark_ovredir_focused;
+  /// Custom fragment shader for painting windows, as a string.
+  char *glx_fshader_win_str;
+#ifdef CONFIG_VSYNC_OPENGL_GLSL
+  /// Custom GLX program used for painting window.
+  glx_prog_main_t glx_prog_win;
+#endif
   /// Whether to fork to background.
   bool fork_after_register;
   /// Whether to detect rounded corners.
@@ -460,6 +585,8 @@ typedef struct {
   /// Whether to paint on X Composite overlay window instead of root
   /// window.
   bool paint_on_overlay;
+  /// Force painting of window content with blending.
+  bool force_win_blend;
   /// Resize damage for a specific number of pixels.
   int resize_damage;
   /// Whether to unredirect all windows if a full-screen opaque window
@@ -474,6 +601,10 @@ typedef struct {
   switch_t redirected_force;
   /// Whether to stop painting. Controlled through D-Bus.
   switch_t stoppaint_force;
+  /// Whether to re-redirect screen on root size change.
+  bool reredir_on_root_change;
+  /// Whether to reinitialize GLX on root size change.
+  bool glx_reinit_on_root_change;
   /// Whether to enable D-Bus support.
   bool dbus;
   /// Path to log file.
@@ -484,8 +615,14 @@ typedef struct {
   Window benchmark_wid;
   /// A list of conditions of windows not to paint.
   c2_lptr_t *paint_blacklist;
+  /// Whether to avoid using XCompositeNameWindowPixmap(), for debugging.
+  bool no_name_pixmap;
   /// Whether to work under synchronized mode for debugging.
   bool synchronize;
+  /// Whether to show all X errors.
+  bool show_all_xerrors;
+  /// Whether to avoid acquiring X Selection.
+  bool no_x_selection;
 
   // === VSync & software optimization ===
   /// User-specified refresh rate.
@@ -498,6 +635,9 @@ typedef struct {
   bool dbe;
   /// Whether to do VSync aggressively.
   bool vsync_aggressive;
+  /// Whether to use glFinish() instead of glFlush() for (possibly) better
+  /// VSync yet probably higher CPU usage.
+  bool vsync_use_glfinish;
 
   // === Shadow ===
   /// Enable/disable shadow for specific window types.
@@ -530,6 +670,8 @@ typedef struct {
   time_ms_t fade_delta;
   /// Whether to disable fading on window open/close.
   bool no_fading_openclose;
+  /// Whether to disable fading on ARGB managed destroyed windows.
+  bool no_fading_destroyed_argb;
   /// Fading blacklist. A linked list of conditions.
   c2_lptr_t *fade_blacklist;
 
@@ -580,6 +722,10 @@ typedef struct {
   // === Focus related ===
   /// Consider windows of specific types to be always focused.
   bool wintype_focus[NUM_WINTYPES];
+  /// Whether to try to detect WM windows and mark them as focused.
+  bool mark_wmwin_focused;
+  /// Whether to mark override-redirect windows as focused.
+  bool mark_ovredir_focused;
   /// Whether to use EWMH _NET_ACTIVE_WINDOW to find active window.
   bool use_ewmh_active_win;
   /// A list of windows always to be considered focused.
@@ -598,8 +744,67 @@ typedef struct {
   bool track_leader;
 } options_t;
 
-/// Structure containing all necessary data for a compton session.
+#ifdef CONFIG_VSYNC_OPENGL
+/// Structure containing GLX-dependent data for a compton session.
 typedef struct {
+  // === OpenGL related ===
+  /// GLX context.
+  GLXContext context;
+  /// Whether we have GL_ARB_texture_non_power_of_two.
+  bool has_texture_non_power_of_two;
+  /// Pointer to glXGetVideoSyncSGI function.
+  f_GetVideoSync glXGetVideoSyncSGI;
+  /// Pointer to glXWaitVideoSyncSGI function.
+  f_WaitVideoSync glXWaitVideoSyncSGI;
+   /// Pointer to glXGetSyncValuesOML function.
+  f_GetSyncValuesOML glXGetSyncValuesOML;
+  /// Pointer to glXWaitForMscOML function.
+  f_WaitForMscOML glXWaitForMscOML;
+  /// Pointer to glXSwapIntervalSGI function.
+  f_SwapIntervalSGI glXSwapIntervalProc;
+  /// Pointer to glXSwapIntervalMESA function.
+  f_SwapIntervalMESA glXSwapIntervalMESAProc;
+  /// Pointer to glXBindTexImageEXT function.
+  f_BindTexImageEXT glXBindTexImageProc;
+  /// Pointer to glXReleaseTexImageEXT function.
+  f_ReleaseTexImageEXT glXReleaseTexImageProc;
+  /// Pointer to glXCopySubBufferMESA function.
+  f_CopySubBuffer glXCopySubBufferProc;
+#ifdef CONFIG_GLX_SYNC
+  /// Pointer to the glFenceSync() function.
+  f_FenceSync glFenceSyncProc;
+  /// Pointer to the glIsSync() function.
+  f_IsSync glIsSyncProc;
+  /// Pointer to the glDeleteSync() function.
+  f_DeleteSync glDeleteSyncProc;
+  /// Pointer to the glClientWaitSync() function.
+  f_ClientWaitSync glClientWaitSyncProc;
+  /// Pointer to the glWaitSync() function.
+  f_WaitSync glWaitSyncProc;
+  /// Pointer to the glImportSyncEXT() function.
+  f_ImportSyncEXT glImportSyncEXT;
+#endif
+#ifdef DEBUG_GLX_MARK
+  /// Pointer to StringMarkerGREMEDY function.
+  f_StringMarkerGREMEDY glStringMarkerGREMEDY;
+  /// Pointer to FrameTerminatorGREMEDY function.
+  f_FrameTerminatorGREMEDY glFrameTerminatorGREMEDY;
+#endif
+  /// Current GLX Z value.
+  int z;
+  /// FBConfig-s for GLX pixmap of different depths.
+  glx_fbconfig_t *fbconfigs[OPENGL_MAX_DEPTH + 1];
+#ifdef CONFIG_VSYNC_OPENGL_GLSL
+  glx_blur_pass_t blur_passes[MAX_BLUR_PASS];
+#endif
+} glx_session_t;
+
+#define CGLX_SESSION_INIT { .context = NULL }
+
+#endif
+
+/// Structure containing all necessary data for a compton session.
+typedef struct _session_t {
   // === Display related ===
   /// Display in use.
   Display *dpy;
@@ -631,11 +836,18 @@ typedef struct {
   /// A Picture acting as the painting target.
   Picture tgt_picture;
   /// Temporary buffer to paint to before sending to display.
-  Picture tgt_buffer;
+  paint_t tgt_buffer;
+#ifdef CONFIG_XSYNC
+  XSyncFence tgt_buffer_fence;
+#endif
   /// DBE back buffer for root window. Used in DBE painting mode.
   XdbeBackBuffer root_dbe;
   /// Window ID of the window we register as a symbol.
   Window reg_win;
+#ifdef CONFIG_VSYNC_OPENGL
+  /// Pointer to GLX data.
+  glx_session_t *psglx;
+#endif
 
   // === Operation related ===
   /// Program options.
@@ -678,10 +890,6 @@ typedef struct {
   /// Pointer to the <code>next</code> member of tail element of the error
   /// ignore linked list.
   ignore_t **ignore_tail;
-#ifdef CONFIG_VSYNC_OPENGL
-  /// Current GLX Z value.
-  int glx_z;
-#endif
   // Cached blur convolution kernels.
   XFixed *blur_kerns_cache[MAX_BLUR_PASS];
   /// Reset program after next paint.
@@ -741,43 +949,6 @@ typedef struct {
   int drm_fd;
 #endif
 
-#ifdef CONFIG_VSYNC_OPENGL
-  // === OpenGL related ===
-  /// GLX context.
-  GLXContext glx_context;
-  /// Whether we have GL_ARB_texture_non_power_of_two.
-  bool glx_has_texture_non_power_of_two;
-  /// Pointer to glXGetVideoSyncSGI function.
-  f_GetVideoSync glXGetVideoSyncSGI;
-  /// Pointer to glXWaitVideoSyncSGI function.
-  f_WaitVideoSync glXWaitVideoSyncSGI;
-   /// Pointer to glXGetSyncValuesOML function.
-  f_GetSyncValuesOML glXGetSyncValuesOML;
-  /// Pointer to glXWaitForMscOML function.
-  f_WaitForMscOML glXWaitForMscOML;
-  /// Pointer to glXSwapIntervalSGI function.
-  f_SwapIntervalSGI glXSwapIntervalProc;
-  /// Pointer to glXSwapIntervalMESA function.
-  f_SwapIntervalMESA glXSwapIntervalMESAProc;
-  /// Pointer to glXBindTexImageEXT function.
-  f_BindTexImageEXT glXBindTexImageProc;
-  /// Pointer to glXReleaseTexImageEXT function.
-  f_ReleaseTexImageEXT glXReleaseTexImageProc;
-  /// Pointer to glXCopySubBufferMESA function.
-  f_CopySubBuffer glXCopySubBufferProc;
-#ifdef DEBUG_GLX_MARK
-  /// Pointer to StringMarkerGREMEDY function.
-  f_StringMarkerGREMEDY glStringMarkerGREMEDY;
-  /// Pointer to FrameTerminatorGREMEDY function.
-  f_FrameTerminatorGREMEDY glFrameTerminatorGREMEDY;
-#endif
-  /// FBConfig-s for GLX pixmap of different depths.
-  glx_fbconfig_t *glx_fbconfigs[OPENGL_MAX_DEPTH + 1];
-#ifdef CONFIG_VSYNC_OPENGL_GLSL
-  glx_blur_pass_t glx_blur_passes[MAX_BLUR_PASS];
-#endif
-#endif
-
   // === X extension related ===
   /// Event base number for X Fixes extension.
   int xfixes_event;
@@ -831,6 +1002,14 @@ typedef struct {
   XserverRegion *xinerama_scr_regs;
   /// Number of Xinerama screens.
   int xinerama_nscrs;
+#endif
+#ifdef CONFIG_XSYNC
+  /// Whether X Sync extension exists.
+  bool xsync_exists;
+  /// Event base number for X Sync extension.
+  int xsync_event;
+  /// Error base number for X Sync extension.
+  int xsync_error;
 #endif
   /// Whether X Render convolution filter exists.
   bool xrfilter_convolution_exists;
@@ -897,6 +1076,10 @@ typedef struct _win {
   winmode_t mode;
   /// Whether the window has been damaged at least once.
   bool damaged;
+#ifdef CONFIG_XSYNC
+  /// X Sync fence of drawable.
+  XSyncFence fence;
+#endif
   /// Whether the window was damaged after last paint.
   bool pixmap_damaged;
   /// Damage of the window.
@@ -986,12 +1169,14 @@ typedef struct _win {
   /// _NET_WM_OPACITY value
   opacity_t opacity_prop_client;
   /// Last window opacity value we set.
-  long opacity_set;
+  opacity_t opacity_set;
 
   // Fading-related members
   /// Do not fade if it's false. Change on window type change.
   /// Used by fading blacklist in the future.
   bool fade;
+  /// Fade state on last paint.
+  bool fade_last;
   /// Override value of window fade state. Set by D-Bus method calls.
   switch_t fade_force;
   /// Callback to be called after fading completed.
@@ -1000,12 +1185,14 @@ typedef struct _win {
   // Frame-opacity-related members
   /// Current window frame opacity. Affected by window opacity.
   double frame_opacity;
-  /// Frame widths. Determined by client window attributes.
-  unsigned int left_width, right_width, top_width, bottom_width;
+  /// Frame extents. Acquired from _NET_FRAME_EXTENTS.
+  margin_t frame_extents;
 
   // Shadow-related members
   /// Whether a window has shadow. Calculated.
   bool shadow;
+  /// Shadow state on last paint.
+  bool shadow_last;
   /// Override value of window shadow state. Set by D-Bus method calls.
   switch_t shadow_force;
   /// Opacity of the shadow. Affected by window opacity and frame opacity.
@@ -1030,12 +1217,16 @@ typedef struct _win {
 
   /// Whether to invert window color.
   bool invert_color;
+  /// Color inversion state on last paint.
+  bool invert_color_last;
   /// Override value of window color inversion state. Set by D-Bus method
   /// calls.
   switch_t invert_color_force;
 
   /// Whether to blur window background.
   bool blur_background;
+  /// Background state on last paint.
+  bool blur_background_last;
 
 #ifdef CONFIG_VSYNC_OPENGL_GLSL
   /// Textures and FBO background blur use.
@@ -1078,13 +1269,13 @@ extern session_t *ps_g;
 static inline void
 print_timestamp(session_t *ps);
 
-#ifdef DEBUG_ALLOC_REG
+#ifdef DEBUG_BACKTRACE
 
 #include <execinfo.h>
-#define BACKTRACE_SIZE  5
+#define BACKTRACE_SIZE  25
 
 /**
- * Print current backtrace, excluding the first two items.
+ * Print current backtrace.
  *
  * Stolen from glibc manual.
  */
@@ -1097,11 +1288,13 @@ print_backtrace(void) {
   size = backtrace(array, BACKTRACE_SIZE);
   strings = backtrace_symbols(array, size);
 
-  for (size_t i = 2; i < size; i++)
+  for (size_t i = 0; i < size; i++)
      printf ("%s\n", strings[i]);
 
   free(strings);
 }
+
+#ifdef DEBUG_ALLOC_REG
 
 /**
  * Wrapper of <code>XFixesCreateRegion</code>, for debugging.
@@ -1133,6 +1326,8 @@ XFixesDestroyRegion_(Display *dpy, XserverRegion reg,
 #define XFixesDestroyRegion(dpy, reg) XFixesDestroyRegion_(dpy, reg, __func__, __LINE__)
 #endif
 
+#endif
+
 // === Functions ===
 
 /**
@@ -1149,6 +1344,22 @@ allocchk_(const char *func_name, void *ptr) {
 
 /// @brief Wrapper of allocchk_().
 #define allocchk(ptr) allocchk_(__func__, ptr)
+
+/// @brief Wrapper of malloc().
+#define cmalloc(nmemb, type) ((type *) allocchk(malloc((nmemb) * sizeof(type))))
+
+/// @brief Wrapper of calloc().
+#define ccalloc(nmemb, type) ((type *) allocchk(calloc((nmemb), sizeof(type))))
+
+/// @brief Wrapper of ealloc().
+#define crealloc(ptr, nmemb, type) ((type *) allocchk(realloc((ptr), (nmemb) * sizeof(type))))
+
+/// @brief Zero out the given memory block.
+#define cmemzero(ptr, size) memset((ptr), 0, (size))
+
+/// @brief Wrapper of cmemzero() that handles a pointer to a single item, for
+///        convenience.
+#define cmemzero_one(ptr) cmemzero((ptr), sizeof(*(ptr)))
 
 /**
  * Return whether a struct timeval value is empty.
@@ -1264,7 +1475,7 @@ timespec_subtract(struct timespec *result,
 /**
  * Get current time in struct timeval.
  */
-static inline struct timeval __attribute__((const))
+static inline struct timeval
 get_time_timeval(void) {
   struct timeval tv = { 0, 0 };
 
@@ -1279,7 +1490,7 @@ get_time_timeval(void) {
  *
  * Note its starting time is unspecified.
  */
-static inline struct timespec __attribute__((const))
+static inline struct timespec
 get_time_timespec(void) {
   struct timespec tm = { 0, 0 };
 
@@ -1310,10 +1521,7 @@ print_timestamp(session_t *ps) {
  */
 static inline char *
 mstrcpy(const char *src) {
-  char *str = malloc(sizeof(char) * (strlen(src) + 1));
-
-  if (!str)
-    printf_errfq(1, "(): Failed to allocate memory.");
+  char *str = cmalloc(strlen(src) + 1, char);
 
   strcpy(str, src);
 
@@ -1325,10 +1533,7 @@ mstrcpy(const char *src) {
  */
 static inline char *
 mstrncpy(const char *src, unsigned len) {
-  char *str = malloc(sizeof(char) * (len + 1));
-
-  if (!str)
-    printf_errfq(1, "(): Failed to allocate memory.");
+  char *str = cmalloc(len + 1, char);
 
   strncpy(str, src, len);
   str[len] = '\0';
@@ -1341,7 +1546,7 @@ mstrncpy(const char *src, unsigned len) {
  */
 static inline char *
 mstrjoin(const char *src1, const char *src2) {
-  char *str = malloc(sizeof(char) * (strlen(src1) + strlen(src2) + 1));
+  char *str = cmalloc(strlen(src1) + strlen(src2) + 1, char);
 
   strcpy(str, src1);
   strcat(str, src2);
@@ -1354,8 +1559,8 @@ mstrjoin(const char *src1, const char *src2) {
  */
 static inline char *
 mstrjoin3(const char *src1, const char *src2, const char *src3) {
-  char *str = malloc(sizeof(char) * (strlen(src1) + strlen(src2)
-        + strlen(src3) + 1));
+  char *str = cmalloc(strlen(src1) + strlen(src2)
+        + strlen(src3) + 1, char);
 
   strcpy(str, src1);
   strcat(str, src2);
@@ -1369,7 +1574,8 @@ mstrjoin3(const char *src1, const char *src2, const char *src3) {
  */
 static inline void
 mstrextend(char **psrc1, const char *src2) {
-  *psrc1 = realloc(*psrc1, (*psrc1 ? strlen(*psrc1): 0) + strlen(src2) + 1);
+  *psrc1 = crealloc(*psrc1, (*psrc1 ? strlen(*psrc1): 0) + strlen(src2) + 1,
+      char);
 
   strcat(*psrc1, src2);
 }
@@ -1472,6 +1678,16 @@ parse_backend(session_t *ps, const char *str) {
       ps->o.backend = i;
       return true;
     }
+  // Keep compatibility with an old revision containing a spelling mistake...
+  if (!strcasecmp(str, "xr_glx_hybird")) {
+    ps->o.backend = BKEND_XR_GLX_HYBRID;
+    return true;
+  }
+  // cju wants to use dashes
+  if (!strcasecmp(str, "xr-glx-hybrid")) {
+    ps->o.backend = BKEND_XR_GLX_HYBRID;
+    return true;
+  }
   printf_errf("(\"%s\"): Invalid backend argument.", str);
   return false;
 }
@@ -1694,6 +1910,37 @@ find_toplevel(session_t *ps, Window id) {
   return NULL;
 }
 
+
+/**
+ * Check if current backend uses XRender for rendering.
+ */
+static inline bool
+bkend_use_xrender(session_t *ps) {
+  return BKEND_XRENDER == ps->o.backend
+    || BKEND_XR_GLX_HYBRID == ps->o.backend;
+}
+
+/**
+ * Check if current backend uses GLX.
+ */
+static inline bool
+bkend_use_glx(session_t *ps) {
+  return BKEND_GLX == ps->o.backend
+    || BKEND_XR_GLX_HYBRID == ps->o.backend;
+}
+
+/**
+ * Check if there's a GLX context.
+ */
+static inline bool
+glx_has_context(session_t *ps) {
+#ifdef CONFIG_VSYNC_OPENGL
+  return ps->psglx && ps->psglx->context;
+#else
+  return false;
+#endif
+}
+
 /**
  * Check if a window is really focused.
  */
@@ -1743,6 +1990,29 @@ free_region(session_t *ps, XserverRegion *p) {
 }
 
 /**
+ * Free all regions in ps->all_damage_last .
+ */
+static inline void
+free_all_damage_last(session_t *ps) {
+  for (int i = 0; i < CGLX_MAX_BUFFER_AGE; ++i)
+    free_region(ps, &ps->all_damage_last[i]);
+}
+
+#ifdef CONFIG_XSYNC
+/**
+ * Free a XSync fence.
+ */
+static inline void
+free_fence(session_t *ps, XSyncFence *pfence) {
+  if (*pfence)
+    XSyncDestroyFence(ps->dpy, *pfence);
+  *pfence = None;
+}
+#else
+#define free_fence(ps, pfence) ((void) 0)
+#endif
+
+/**
  * Crop a rectangle by another rectangle.
  *
  * psrc and pdst cannot be the same.
@@ -1773,7 +2043,15 @@ rect_is_fullscreen(session_t *ps, int x, int y, unsigned wid, unsigned hei) {
 static inline bool
 win_is_fullscreen(session_t *ps, const win *w) {
   return rect_is_fullscreen(ps, w->a.x, w->a.y, w->widthb, w->heightb)
-      && !w->bounding_shaped;
+      && (!w->bounding_shaped || w->rounded_corners);
+}
+
+/**
+ * Check if a window will be painted solid.
+ */
+static inline bool
+win_is_solid(session_t *ps, const win *w) {
+  return WMODE_SOLID == w->mode && !ps->o.force_win_blend;
 }
 
 /**
@@ -1867,17 +2145,32 @@ vsync_deinit(session_t *ps);
  */
 ///@{
 
+#ifdef CONFIG_GLX_SYNC
+void
+xr_glx_sync(session_t *ps, Drawable d, XSyncFence *pfence);
+#endif
+
 bool
 glx_init(session_t *ps, bool need_render);
 
 void
 glx_destroy(session_t *ps);
 
+bool
+glx_reinit(session_t *ps, bool need_render);
+
 void
 glx_on_root_change(session_t *ps);
 
 bool
 glx_init_blur(session_t *ps);
+
+#ifdef CONFIG_VSYNC_OPENGL_GLSL
+bool
+glx_load_prog_main(session_t *ps,
+    const char *vshader_str, const char *fshader_str,
+    glx_prog_main_t *pprogram);
+#endif
 
 bool
 glx_bind_pixmap(session_t *ps, glx_texture_t **pptex, Pixmap pixmap,
@@ -1914,13 +2207,30 @@ glx_dim_dst(session_t *ps, int dx, int dy, int width, int height, float z,
     GLfloat factor, XserverRegion reg_tgt, const reg_data_t *pcache_reg);
 
 bool
-glx_render(session_t *ps, const glx_texture_t *ptex,
+glx_render_(session_t *ps, const glx_texture_t *ptex,
     int x, int y, int dx, int dy, int width, int height, int z,
-    double opacity, bool neg,
-    XserverRegion reg_tgt, const reg_data_t *pcache_reg);
+    double opacity, bool argb, bool neg,
+    XserverRegion reg_tgt, const reg_data_t *pcache_reg
+#ifdef CONFIG_VSYNC_OPENGL_GLSL
+    , const glx_prog_main_t *pprogram
+#endif
+    );
+
+#ifdef CONFIG_VSYNC_OPENGL_GLSL
+#define \
+   glx_render(ps, ptex, x, y, dx, dy, width, height, z, opacity, argb, neg, reg_tgt, pcache_reg, pprogram) \
+  glx_render_(ps, ptex, x, y, dx, dy, width, height, z, opacity, argb, neg, reg_tgt, pcache_reg, pprogram)
+#else
+#define \
+   glx_render(ps, ptex, x, y, dx, dy, width, height, z, opacity, argb, neg, reg_tgt, pcache_reg, pprogram) \
+  glx_render_(ps, ptex, x, y, dx, dy, width, height, z, opacity, argb, neg, reg_tgt, pcache_reg)
+#endif
 
 void
 glx_swap_copysubbuffermesa(session_t *ps, XserverRegion reg);
+
+unsigned char *
+glx_take_screenshot(session_t *ps, int *out_length);
 
 #ifdef CONFIG_VSYNC_OPENGL_GLSL
 GLuint
@@ -1928,6 +2238,10 @@ glx_create_shader(GLenum shader_type, const char *shader_str);
 
 GLuint
 glx_create_program(const GLuint * const shaders, int nshaders);
+
+GLuint
+glx_create_program_from_str(const char *vert_shader_str,
+    const char *frag_shader_str);
 #endif
 
 /**
@@ -1936,7 +2250,7 @@ glx_create_program(const GLuint * const shaders, int nshaders);
 static inline void
 free_texture_r(session_t *ps, GLuint *ptexture) {
   if (*ptexture) {
-    assert(ps->glx_context);
+    assert(glx_has_context(ps));
     glDeleteTextures(1, ptexture);
     *ptexture = 0;
   }
@@ -2003,19 +2317,39 @@ free_texture(session_t *ps, glx_texture_t **pptex) {
 }
 
 /**
+ * Free GLX part of paint_t.
+ */
+static inline void
+free_paint_glx(session_t *ps, paint_t *ppaint) {
+  free_texture(ps, &ppaint->ptex);
+}
+
+/**
+ * Free GLX part of win.
+ */
+static inline void
+free_win_res_glx(session_t *ps, win *w) {
+  free_paint_glx(ps, &w->paint);
+  free_paint_glx(ps, &w->shadow_paint);
+#ifdef CONFIG_VSYNC_OPENGL_GLSL
+  free_glx_bc(ps, &w->glx_blur_cache);
+#endif
+}
+
+/**
  * Add a OpenGL debugging marker.
  */
 static inline void
 glx_mark_(session_t *ps, const char *func, XID xid, bool start) {
 #ifdef DEBUG_GLX_MARK
-  if (BKEND_GLX == ps->o.backend && ps->glStringMarkerGREMEDY) {
+  if (glx_has_context(ps) && ps->psglx->glStringMarkerGREMEDY) {
     if (!func) func = "(unknown)";
     const char *postfix = (start ? " (start)": " (end)");
     char *str = malloc((strlen(func) + 12 + 2
           + strlen(postfix) + 5) * sizeof(char));
     strcpy(str, func);
     sprintf(str + strlen(str), "(%#010lx)%s", xid, postfix);
-    ps->glStringMarkerGREMEDY(strlen(str), str);
+    ps->psglx->glStringMarkerGREMEDY(strlen(str), str);
     free(str);
   }
 #endif
@@ -2029,12 +2363,66 @@ glx_mark_(session_t *ps, const char *func, XID xid, bool start) {
 static inline void
 glx_mark_frame(session_t *ps) {
 #ifdef DEBUG_GLX_MARK
-  if (BKEND_GLX == ps->o.backend && ps->glFrameTerminatorGREMEDY)
-    ps->glFrameTerminatorGREMEDY();
+  if (glx_has_context(ps) && ps->psglx->glFrameTerminatorGREMEDY)
+    ps->psglx->glFrameTerminatorGREMEDY();
 #endif
 }
 
 ///@}
+
+#ifdef CONFIG_XSYNC
+#define xr_sync(ps, d, pfence) xr_sync_(ps, d, pfence)
+#else
+#define xr_sync(ps, d, pfence) xr_sync_(ps, d)
+#endif
+
+/**
+ * Synchronizes a X Render drawable to ensure all pending painting requests
+ * are completed.
+ */
+static inline void
+xr_sync_(session_t *ps, Drawable d
+#ifdef CONFIG_XSYNC
+    , XSyncFence *pfence
+#endif
+    ) {
+  if (!ps->o.xrender_sync)
+    return;
+
+  XSync(ps->dpy, False);
+#ifdef CONFIG_XSYNC
+  if (ps->o.xrender_sync_fence && ps->xsync_exists) {
+    // TODO: If everybody just follows the rules stated in X Sync prototype,
+    // we need only one fence per screen, but let's stay a bit cautious right
+    // now
+    XSyncFence tmp_fence = None;
+    if (!pfence)
+      pfence = &tmp_fence;
+    assert(pfence);
+    if (!*pfence)
+      *pfence = XSyncCreateFence(ps->dpy, d, False);
+    if (*pfence) {
+      Bool triggered = False;
+      /* if (XSyncQueryFence(ps->dpy, *pfence, &triggered) && triggered)
+        XSyncResetFence(ps->dpy, *pfence); */
+      // The fence may fail to be created (e.g. because of died drawable)
+      assert(!XSyncQueryFence(ps->dpy, *pfence, &triggered) || !triggered);
+      XSyncTriggerFence(ps->dpy, *pfence);
+      XSyncAwaitFence(ps->dpy, pfence, 1);
+      assert(!XSyncQueryFence(ps->dpy, *pfence, &triggered) || triggered);
+    }
+    else {
+      printf_errf("(%#010lx): Failed to create X Sync fence.", d);
+    }
+    free_fence(ps, &tmp_fence);
+    if (*pfence)
+      XSyncResetFence(ps->dpy, *pfence);
+  }
+#endif
+#ifdef CONFIG_GLX_SYNC
+  xr_glx_sync(ps, d, pfence);
+#endif
+}
 
 /** @name DBus handling
  */
@@ -2118,7 +2506,27 @@ c2_matchd(session_t *ps, win *w, const c2_lptr_t *condlst,
 
 ///@}
 
-#endif
+/**
+ * @brief Dump the given data to a file.
+ */
+static inline bool
+write_binary_data(const char *path, const unsigned char *data, int length) {
+  if (!data)
+    return false;
+  FILE *f = fopen(path, "wb");
+  if (!f) {
+    printf_errf("(\"%s\"): Failed to open file for writing.", path);
+    return false;
+  }
+  int wrote_len = fwrite(data, sizeof(unsigned char), length, f);
+  fclose(f);
+  if (wrote_len != length) {
+    printf_errf("(\"%s\"): Failed to write all blocks: %d / %d", path,
+        wrote_len, length);
+    return false;
+  }
+  return true;
+}
 
 /**
  * @brief Dump raw bytes in HEX format.
@@ -2155,3 +2563,4 @@ hexdump(const char *data, int len) {
   fflush(stdout);
 }
 
+#endif

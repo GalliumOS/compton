@@ -2,7 +2,7 @@ compton(1)
 ==========
 :doctype:     manpage
 :man source:  compton
-:man version: nightly-20130421
+:man version: nightly-20141124
 :man manual:  LOCAL USER COMMANDS
 
 NAME
@@ -29,62 +29,68 @@ OPTIONS
 *-d* 'DISPLAY'::
 	Display to be managed.
 
-*-r* 'RADIUS'::
+*-r*, *--shadow-radius*='RADIUS'::
 	The blur radius for shadows, in pixels. (defaults to 12)
 
-*-o* 'OPACITY'::
+*-o*, *--shadow-opacity*='OPACITY'::
 	The opacity of shadows. (0.0 - 1.0, defaults to 0.75)
 
-*-l* 'OFFSET'::
+*-l*, *--shadow-offset-x*='OFFSET'::
 	The left offset for shadows, in pixels. (defaults to -15)
 
-*-t* 'OFFSET'::
+*-t*, *--shadow-offset-y*='OFFSET'::
 	The top offset for shadows, in pixels. (defaults to -15)
 
-*-I* 'OPACITY_STEP'::
+*-I*, *--fade-in-step*='OPACITY_STEP'::
 	Opacity change between steps while fading in. (0.01 - 1.0, defaults to 0.028)
 
-*-O* 'OPACITY_STEP'::
+*-O*, *--fade-out-step*='OPACITY_STEP'::
 	Opacity change between steps while fading out. (0.01 - 1.0, defaults to 0.03)
 
-*-D* 'MILLISECONDS'::
+*-D*, *--fade-delta*='MILLISECONDS'::
 	The time between steps in fade step, in milliseconds. (> 0, defaults to 10)
 
-*-m* 'OPACITY'::
+*-m*, *--menu-opacity*='OPACITY'::
 	Default opacity for dropdown menus and popup menus. (0.0 - 1.0, defaults to 1.0)
 
-*-c*::
+*-c*, *--shadow*::
 	Enabled client-side shadows on windows. Note desktop windows (windows with '_NET_WM_WINDOW_TYPE_DESKTOP') never get shadow.
 
-*-C*::
+*-C*, *--no-dock-shadow*::
 	Avoid drawing shadows on dock/panel windows.
 
-*-z*::
+*-z*, *--clear-shadow*::
 	Zero the part of the shadow's mask behind the window. Note this may not work properly on ARGB windows with fully transparent areas.
 
-*-f*::
+*-f*, *--fading*::
 	Fade windows in/out when opening/closing and when opacity changes, unless *--no-fading-openclose* is used.
 
 *-F*::
-	Equals *-f*. Deprecated.
+	Equals to *-f*. Deprecated.
 
-*-i* 'OPACITY'::
+*-i*, *--inactive-opacity*='OPACITY'::
 	Opacity of inactive windows. (0.1 - 1.0, disabled by default)
 
-*-e* 'OPACITY'::
+*-e*, *--frame-opacity*='OPACITY'::
 	Opacity of window titlebars and borders. (0.1 - 1.0, disabled by default)
 
-*-G*::
+*-G*, *--no-dnd-shadow*::
 	Don't draw shadows on drag-and-drop windows.
 
-*-b*::
-	Daemonize process. Fork to background after initialization.
+*-b*, *--daemon*::
+	Daemonize process. Fork to background after initialization. Causes issues with certain (badly-written) drivers.
 
 *-S*::
 	Enable synchronous X operation (for debugging).
 
+*--show-all-xerrors*::
+	Show all X errors (for debugging).
+
 *--config* 'PATH'::
-	Look for configuration file at the path. See *CONFIGURATION FILES* section below for where compton looks for a configuration file by default.
+	Look for configuration file at the path. See *CONFIGURATION FILES* section below for where compton looks for a configuration file by default. Use `/dev/null` to avoid loading configuration file.
+
+*--write-pid-path* 'PATH'::
+	Write process ID to a file.
 
 *--shadow-red* 'VALUE'::
 	Red color value of shadow (0.0 - 1.0, defaults to 0).
@@ -113,8 +119,11 @@ OPTIONS
 *--no-fading-openclose*::
 	Do not fade on window open/close.
 
+*--no-fading-destroyed-argb*::
+	Do not fade destroyed ARGB windows with WM frame. Workaround of bugs in Openbox, Fluxbox, etc.
+
 *--shadow-ignore-shaped*::
-	Do not paint shadows on shaped windows. Note shaped windows here means windows setting its shape through X Shape extension. Those using ARGB background is beyond our control.
+	Do not paint shadows on shaped windows. Note shaped windows here means windows setting its shape through X Shape extension. Those using ARGB background is beyond our control. Deprecated, use `--shadow-exclude 'bounding_shaped'` or `--shadow-exclude 'bounding_shaped && !rounded_corners'` instead.
 
 *--detect-rounded-corners*::
 	Try to detect windows with rounded corners and don't consider them shaped windows. The accuracy is not very high, unfortunately.
@@ -130,10 +139,10 @@ OPTIONS
 +
 --
 * 'none': No VSync
-* 'drm': VSync with 'DRM_IOCTL_WAIT_VBLANK'. May only work on some drivers.
+* 'drm': VSync with 'DRM_IOCTL_WAIT_VBLANK'. May only work on some (DRI-based) drivers.
 * 'opengl': Try to VSync with 'SGI_video_sync' OpenGL extension. Only work on some drivers.
 * 'opengl-oml': Try to VSync with 'OML_sync_control' OpenGL extension. Only work on some drivers.
-* 'opengl-swc': Try to VSync with 'SGI_swap_control' OpenGL extension. Only work on some drivers. Works only with GLX backend. Known to be most effective on many drivers. Does not actually control paint timing, only buffer swap is affected, so it doesn't have the effect of *--sw-opti* unlike other methods. Experimental.
+* 'opengl-swc': Try to VSync with 'SGI_swap_control' OpenGL extension. Only work on some drivers. Works only with GLX backend. Known to be most effective on many drivers. Does not guarantee to control paint timing.
 * 'opengl-mswc': Try to VSync with 'MESA_swap_control' OpenGL extension. Basically the same as 'opengl-swc' above, except the extension we use.
 
 (Note some VSync methods may not be enabled at compile time.)
@@ -205,13 +214,13 @@ WIDTH,HEIGHT,ELE1,ELE2,ELE3,ELE4,ELE5...
 +
 The element in the center must not be included, it will be forever 1.0 or changing based on opacity, depending on whether you have `--blur-background-fixed`. Yet the automatic adjustment of blur factor may not work well with a custom blur kernel.
 +
-A 7x7 Guassian blur kernel (sigma = 0.84089642) looks like:
+A 7x7 Gaussian blur kernel (sigma = 0.84089642) looks like:
 +
 ----
 --blur-kern '7,7,0.000003,0.000102,0.000849,0.001723,0.000849,0.000102,0.000003,0.000102,0.003494,0.029143,0.059106,0.029143,0.003494,0.000102,0.000849,0.029143,0.243117,0.493069,0.243117,0.029143,0.000849,0.001723,0.059106,0.493069,0.493069,0.059106,0.001723,0.000849,0.029143,0.243117,0.493069,0.243117,0.029143,0.000849,0.000102,0.003494,0.029143,0.059106,0.029143,0.003494,0.000102,0.000003,0.000102,0.000849,0.001723,0.000849,0.000102,0.000003'
 ----
 +
-May also be one of the predefined kernels: `3x3box` (default), `5x5box`, `7x7box`, `3x3gaussian`, `5x5gaussian`, `7x7gaussian`, `9x9gaussian`, `11x11gaussian`. All Guassian kernels are generated with sigma = 0.84089642 . You may use the accompanied `compton-convgen.py` to generate blur kernels.
+May also be one of the predefined kernels: `3x3box` (default), `5x5box`, `7x7box`, `3x3gaussian`, `5x5gaussian`, `7x7gaussian`, `9x9gaussian`, `11x11gaussian`. All Gaussian kernels are generated with sigma = 0.84089642 . You may use the accompanied `compton-convgen.py` to generate blur kernels.
 
 *--blur-background-exclude* 'CONDITION'::
 	Exclude conditions for background blur.
@@ -232,7 +241,13 @@ May also be one of the predefined kernels: `3x3box` (default), `5x5box`, `7x7box
 	Crop shadow of a window fully on a particular Xinerama screen to the screen.
 
 *--backend* 'BACKEND'::
-	Specify the backend to use: `xrender` or `glx`. GLX (OpenGL) backend generally has much superior performance as far as you have a graphic card/chip and driver.
+	Specify the backend to use: `xrender`, `glx`, or `xr_glx_hybrid`. `xrender` is the default one.
++
+--
+* `xrender` backend performs all rendering operations with X Render extension. It is what `xcompmgr` uses, and is generally a safe fallback when you encounter rendering artifacts or instability.
+* `glx` (OpenGL) backend performs all rendering operations with OpenGL. It is more friendly to some VSync methods, and has significantly superior performance on color inversion (`--invert-color-include`) or blur (`--blur-background`). It requires proper OpenGL 2.0 support from your driver and hardware. You may wish to look at the GLX performance optimization options below. `--xrender-sync` and `--xrender-sync-fence` might be needed on some systems to avoid delay in changes of screen contents.
+* `xr_glx_hybrid` backend renders the updated screen contents with X Render and presents it on the screen with GLX. It attempts to address the rendering issues some users encountered with GLX backend and enables the better VSync of GLX backends. `--vsync-use-glfinish` might fix some rendering issues with this backend.
+--
 
 *--glx-no-stencil*::
   GLX backend: Avoid using stencil buffer, useful if you don't have a stencil buffer. Might cause incorrect opacity when rendering transparent content (but never practically happened) and may not work with *--blur-background*. My tests show a 15% performance boost. Recommended.
@@ -244,13 +259,25 @@ May also be one of the predefined kernels: `3x3box` (default), `5x5box`, `7x7box
 	GLX backend: Use 'MESA_copy_sub_buffer' to do partial screen update. My tests on nouveau shows a 200% performance boost when only 1/4 of the screen is updated. May break VSync and is not available on some drivers. Overrides *--glx-copy-from-front*.
 
 *--glx-no-rebind-pixmap*::
-	GLX backend: Avoid rebinding pixmap on window damage. Probably could improve performance on rapid window content changes, but is known to break things on some drivers (LLVMpipe). Recommended if it works.
+	GLX backend: Avoid rebinding pixmap on window damage. Probably could improve performance on rapid window content changes, but is known to break things on some drivers (LLVMpipe, xf86-video-intel, etc.). Recommended if it works.
 
 *--glx-swap-method* undefined/exchange/copy/3/4/5/6/buffer-age::
 	GLX backend: GLX buffer swap method we assume. Could be `undefined` (0), `copy` (1), `exchange` (2), 3-6, or `buffer-age` (-1).  `undefined` is the slowest and the safest, and the default value. `copy` is fastest, but may fail on some drivers, 2-6 are gradually slower but safer (6 is still faster than 0). Usually, double buffer means 2, triple buffer means 3. `buffer-age` means auto-detect using 'GLX_EXT_buffer_age', supported by some drivers. Useless with *--glx-use-copysubbuffermesa*. Partially breaks `--resize-damage`. Defaults to `undefined`.
 
 *--glx-use-gpushader4*::
 	GLX backend: Use 'GL_EXT_gpu_shader4' for some optimization on blur GLSL code. My tests on GTX 670 show no noticeable effect.
+
+*--xrender-sync*::
+	Attempt to synchronize client applications' draw calls with `XSync()`, used on GLX backend to ensure up-to-date window content is painted.
+
+*--xrender-sync-fence*::
+	Additionally use X Sync fence to sync clients' draw calls. Needed on nvidia-drivers with GLX backend for some users. May be disabled at compile time with `NO_XSYNC=1`.
+
+*--glx-fshader-win* 'SHADER'::
+	GLX backend: Use specified GLSL fragment shader for rendering window contents. See `compton-default-fshader-win.glsl` and `compton-fake-transparency-fshader-win.glsl` in the source tree for examples.
+
+*--force-win-blend*::
+	Force all windows to be painted with blending. Useful if you have a *--glx-fshader-win* that could turn opaque pixels transparent.
 
 *--dbus*::
 	Enable remote control via D-Bus. See the *D-BUS API* section below for more details.
@@ -279,7 +306,7 @@ With greater-than/less-than operators it looks like:
 
 'NEGATION' (optional) is one or more exclamation marks;
 
-'TARGET' is either a predefined target name, or the name of a window property to match. Supported predefined targets are `id`, `x`, `y`, `x2` (x + widthb), `y2`, `width`, `height`, `widthb` (width + 2 * border), `heightb`, `override_redirect`, `argb` (whether the window has an ARGB visual), `focused`, `wmwin` (whether the window looks like a WM window, i.e. has no child window with `WM_STATE` and is not override-redirected), `client` (ID of client window), `window_type` (window type in string), `leader` (ID of window leader), `name`, `class_g` (= `WM_CLASS[1]`), `class_i` (= `WM_CLASS[0]`), and `role`.
+'TARGET' is either a predefined target name, or the name of a window property to match. Supported predefined targets are `id`, `x`, `y`, `x2` (x + widthb), `y2`, `width`, `height`, `widthb` (width + 2 * `border_width`), `heightb`, `override_redirect`, `argb` (whether the window has an ARGB visual), `focused`, `wmwin` (whether the window looks like a WM window, i.e. has no child window with `WM_STATE` and is not override-redirected), `bounding_shaped`, `rounded_corners` (requires *--detect-rounded-corners*), `client` (ID of client window), `window_type` (window type in string), `leader` (ID of window leader), `name`, `class_g` (= `WM_CLASS[1]`), `class_i` (= `WM_CLASS[0]`), and `role`.
 
 'CLIENT/FRAME' is a single `@` if the window attribute should be be looked up on client window, nothing if on frame window;
 
@@ -347,9 +374,9 @@ This is the old condition format we once used. Support of this format might be r
 
 CONFIGURATION FILES
 -------------------
-compton could read from a configuration file if libconfig support is compiled in. If *--config* is not used, compton will seek for a configuration file in `$XDG_CONFIG_HOME/compton.conf` (`~/.config/compton.conf`, usually), then `~/.compton.conf`, then `compton.conf` under `$XDG_DATA_DIRS` (often `/etc/xdg/compton.conf`).
+compton could read from a configuration file if libconfig support is compiled in. If *--config* is not used, compton will seek for a configuration file in `$XDG_CONFIG_HOME/compton.conf` (`~/.config/compton.conf`, usually), then `~/.compton.conf`, then `compton.conf` under `$XDG_CONFIG_DIRS` (often `/etc/xdg/compton.conf`).
 
-compton uses general libconfig configurtion file format. A sample configuration file is available as `compton.sample.conf` in the source tree. Most commandline switches each could be replaced with an option in configuration file, thus documented above. Window-type-specific settings are exposed only in configuration file and has the following format:
+compton uses general libconfig configuration file format. A sample configuration file is available as `compton.sample.conf` in the source tree. Most commandline switches each could be replaced with an option in configuration file, thus documented above. Window-type-specific settings are exposed only in configuration file and has the following format:
 
 ------------
 wintypes:

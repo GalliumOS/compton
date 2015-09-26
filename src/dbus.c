@@ -39,29 +39,9 @@ cdbus_init(session_t *ps) {
 
   // Request service name
   {
-    // Get display name
-    char *display = DisplayString(ps->dpy);
-    if (!display)
-      display = "unknown";
-    display = mstrcpy(display);
-
-    // Convert all special characters in display name to underscore
-    {
-      char *pdisp = display;
-
-      while (*pdisp) {
-        if (!isalnum(*pdisp))
-          *pdisp = '_';
-        ++pdisp;
-      }
-    }
-
     // Build service name
-    char *service = mstrjoin3(CDBUS_SERVICE_NAME, ".", display);
+    char *service = mstrjoin3(CDBUS_SERVICE_NAME, ".", ps->o.display_repr);
     ps->dbus_service = service;
-
-    free(display);
-    display = NULL;
 
     // Request for the name
     int ret = dbus_bus_request_name(ps->dbus_conn, service,
@@ -735,12 +715,30 @@ cdbus_process_win_get(session_t *ps, DBusMessage *msg) {
   cdbus_m_win_get_do(class_instance, cdbus_reply_string);
   cdbus_m_win_get_do(class_general, cdbus_reply_string);
   cdbus_m_win_get_do(role, cdbus_reply_string);
+
   cdbus_m_win_get_do(opacity, cdbus_reply_uint32);
+  cdbus_m_win_get_do(opacity_tgt, cdbus_reply_uint32);
+  cdbus_m_win_get_do(opacity_prop, cdbus_reply_uint32);
+  cdbus_m_win_get_do(opacity_prop_client, cdbus_reply_uint32);
+  cdbus_m_win_get_do(opacity_set, cdbus_reply_uint32);
+
   cdbus_m_win_get_do(frame_opacity, cdbus_reply_double);
-  cdbus_m_win_get_do(left_width, cdbus_reply_uint32);
-  cdbus_m_win_get_do(right_width, cdbus_reply_uint32);
-  cdbus_m_win_get_do(top_width, cdbus_reply_uint32);
-  cdbus_m_win_get_do(bottom_width, cdbus_reply_uint32);
+  if (!strcmp("left_width", target)) {
+    cdbus_reply_uint32(ps, msg, w->frame_extents.left);
+    return true;
+  }
+  if (!strcmp("right_width", target)) {
+    cdbus_reply_uint32(ps, msg, w->frame_extents.right);
+    return true;
+  }
+  if (!strcmp("top_width", target)) {
+    cdbus_reply_uint32(ps, msg, w->frame_extents.top);
+    return true;
+  }
+  if (!strcmp("bottom_width", target)) {
+    cdbus_reply_uint32(ps, msg, w->frame_extents.bottom);
+    return true;
+  }
 
   cdbus_m_win_get_do(shadow, cdbus_reply_bool);
   cdbus_m_win_get_do(fade, cdbus_reply_bool);
@@ -889,6 +887,18 @@ cdbus_process_opts_get(session_t *ps, DBusMessage *msg) {
     return true; \
   }
 
+  // version
+  if (!strcmp("version", target)) {
+    cdbus_reply_string(ps, msg, COMPTON_VERSION);
+    return true;
+  }
+
+  // pid
+  if (!strcmp("pid", target)) {
+    cdbus_reply_int32(ps, msg, getpid());
+    return true;
+  }
+
   // display
   if (!strcmp("display", target)) {
     cdbus_reply_string(ps, msg, DisplayString(ps->dpy));
@@ -896,11 +906,18 @@ cdbus_process_opts_get(session_t *ps, DBusMessage *msg) {
   }
 
   cdbus_m_opts_get_do(config_file, cdbus_reply_string);
+  cdbus_m_opts_get_do(display_repr, cdbus_reply_string);
+  cdbus_m_opts_get_do(write_pid_path, cdbus_reply_string);
   cdbus_m_opts_get_do(mark_wmwin_focused, cdbus_reply_bool);
   cdbus_m_opts_get_do(mark_ovredir_focused, cdbus_reply_bool);
   cdbus_m_opts_get_do(fork_after_register, cdbus_reply_bool);
   cdbus_m_opts_get_do(detect_rounded_corners, cdbus_reply_bool);
   cdbus_m_opts_get_do(paint_on_overlay, cdbus_reply_bool);
+  // paint_on_overlay_id: Get ID of the X composite overlay window
+  if (!strcmp("paint_on_overlay_id", target)) {
+    cdbus_reply_uint32(ps, msg, ps->overlay);
+    return true;
+  }
   cdbus_m_opts_get_do(unredir_if_possible, cdbus_reply_bool);
   cdbus_m_opts_get_do(unredir_if_possible_delay, cdbus_reply_int32);
   cdbus_m_opts_get_do(redirected_force, cdbus_reply_enum);
