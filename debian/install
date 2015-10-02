@@ -1,2 +1,0 @@
-debian/compton.conf /etc/xdg
-debian/compton.desktop /etc/xdg/autostart
