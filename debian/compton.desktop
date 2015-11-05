@@ -2,7 +2,7 @@
 Version=1.0
 Name=Compton
 Comment=Compton Compositor
-Exec=compton --config /etc/xdg/compton.conf -b
+Exec=/bin/bash -c "seq 0 3 | xargs -l1 -I@ compton --config /etc/xdg/compton.conf -b -d :0.@"
 Terminal=false
 Type=Application
 StartupNotify=false

@@ -1,9 +1,57 @@
-compton (0.1~beta3-git-9.22.15-1) vivid-galliumos; urgency=low
+compton (0.1~beta3-git-9.22.15-9) vivid-galliumos; urgency=low
 
-  * Synced code from git repo
   * Updated config
 
- -- Hugh Greenberg <hugh@galliumos.org>  Mon, 14 Sep 2015 19:55:25 +1100
+ -- Hugh Greenberg <hugh@galliumos.org>  Sun, 18 Oct 2015 19:55:25 +1100
+
+compton (0.1~beta3-git-9.22.15-8) vivid-galliumos; urgency=low
+
+  * Updated config
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Sun, 18 Oct 2015 19:55:25 +1100
+
+compton (0.1~beta3-git-9.22.15-7) vivid-galliumos; urgency=low
+
+  * Updated config
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Thu, 15 Oct 2015 19:55:25 +1100
+
+compton (0.1~beta3-git-9.22.15-6) vivid-galliumos; urgency=low
+
+  * Updated config
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Thu, 15 Oct 2015 19:55:25 +1100
+
+compton (0.1~beta3-git-9.22.15-5) vivid-galliumos; urgency=low
+
+  * Updated config
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Thu, 15 Oct 2015 19:55:25 +1100
+
+compton (0.1~beta3-git-9.22.15-4) vivid-galliumos; urgency=low
+
+  * Updated config
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Thu, 01 Oct 2015 19:55:25 +1100
+
+compton (0.1~beta3-git-9.22.15-3) vivid-galliumos; urgency=low
+
+  * Updated config
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Wed, 23 Sep 2015 19:55:25 +1100
+
+compton (0.1~beta3-git-9.22.15-2) vivid-galliumos; urgency=low
+
+  * Changed autostart to run on multiple monitors
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Wed, 23 Sep 2015 19:55:25 +1100
+
+compton (0.1~beta3-git-9.22.15-1) vivid-galliumos; urgency=low
+
+  * Synced git repo
+  * Better exclusion rules
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Wed, 23 Sep 2015 19:55:25 +1100
 
 compton (0.1~beta2-4) vivid-galliumos; urgency=low
 
