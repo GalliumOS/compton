@@ -1,3 +1,9 @@
+compton (0.1~beta3-git-9.22.15-11) vivid-galliumos; urgency=low
+
+  * Updated config
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Mon, 28 Dec 2015 19:55:25 +1100
+
 compton (0.1~beta3-git-9.22.15-10) vivid-galliumos; urgency=low
 
   * Updated config
