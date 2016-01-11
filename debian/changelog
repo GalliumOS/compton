@@ -1,3 +1,10 @@
+compton (0.1~beta2-1git20150920.d7f95b5-galliumos12) unstable; urgency=low
+
+  * Set package version to match provenance
+  * Upstream: Ubuntu pkg of https://github.com/chjj/compton
+
+ -- reynhout <reynhout@galliumos.org>  Sun, 10 Jan 2016 21:05:33 +0000
+
 compton (0.1~beta3-git-9.22.15-11) vivid-galliumos; urgency=low
 
   * Updated config
