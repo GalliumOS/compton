@@ -6,6 +6,7 @@ CC ?= gcc
 PREFIX ?= /usr
 BINDIR ?= $(PREFIX)/bin
 MANDIR ?= $(PREFIX)/share/man/man1
+APPDIR ?= $(PREFIX)/share/applications
 ICODIR ?= $(PREFIX)/share/icons/hicolor/
 
 PACKAGES = x11 xcomposite xfixes xdamage xrender xext xrandr
@@ -150,11 +151,17 @@ man/%.1.html: man/%.1.asciidoc
 docs: $(MANPAGES) $(MANPAGES_HTML)
 
 install: $(BINS) docs
-	@install -d "$(DESTDIR)$(BINDIR)" "$(DESTDIR)$(MANDIR)"
+	@install -d "$(DESTDIR)$(BINDIR)" "$(DESTDIR)$(MANDIR)" "$(DESTDIR)$(APPDIR)"
 	@install -m755 $(BINS) "$(DESTDIR)$(BINDIR)"/
 ifneq "$(MANPAGES)" ""
 	@install -m644 $(MANPAGES) "$(DESTDIR)$(MANDIR)"/
 endif
+	@install -d \
+		"$(DESTDIR)$(ICODIR)/scalable/apps" \
+		"$(DESTDIR)$(ICODIR)/48x48/apps"
+	@install -m644 media/compton.svg "$(DESTDIR)$(ICODIR)/scalable/apps"/
+	@install -m644 media/icons/48x48/compton.png "$(DESTDIR)$(ICODIR)/48x48/apps"/
+	@install -m644 compton.desktop "$(DESTDIR)$(APPDIR)"/
 ifneq "$(DOCDIR)" ""
 	@install -d "$(DESTDIR)$(DOCDIR)"
 	@install -m644 README.md compton.sample.conf "$(DESTDIR)$(DOCDIR)"/
@@ -164,6 +171,7 @@ endif
 uninstall:
 	@rm -f "$(DESTDIR)$(BINDIR)/compton" "$(DESTDIR)$(BINDIR)/compton-trans"
 	@rm -f $(addprefix "$(DESTDIR)$(MANDIR)"/, compton.1 compton-trans.1)
+	@rm -f "$(DESTDIR)$(APPDIR)/compton.desktop"
 ifneq "$(DOCDIR)" ""
 	@rm -f $(addprefix "$(DESTDIR)$(DOCDIR)"/, README.md compton.sample.conf cdbus-driver.sh)
 endif
