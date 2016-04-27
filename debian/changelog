@@ -1,3 +1,9 @@
+compton (0.1~beta2-1git20150921.2343e4b-galliumos2) unstable; urgency=low
+
+  * Config file change
+
+ -- Hugh Greenberg <hugh@galliumos.org>  Tue, 26 Apr 2016 21:05:33 +0000
+
 compton (0.1~beta2-1git20150921.2343e4b-galliumos1) unstable; urgency=low
 
   * Synced upstream
